@@ -1,66 +1,61 @@
 const mineflayer = require('mineflayer');
 const config = require('./config.json');
 
+console.log(`[Engine] Initializing clean connection frame to ${config.serverHost}:${config.serverPort}`);
+
 const bot = mineflayer.createBot({
-  host: config.serverHost,
-  port: config.serverPort,
-  username: config.botUsername,
-  auth: 'offline',
-  version: false,
-  viewDistance: config.botChunk
+    host: config.serverHost,
+    port: config.serverPort,
+    username: config.botUsername,
+    version: "1.21.1",
+    auth: "offline",
+    brand: "vanilla",
+    respawn: true,
+    physicsEnabled: false // Lock states until spawned inside dimensions safely
 });
 
-let movementPhase = 0;
-const STEP_INTERVAL = 1500;
-const STEP_SPEED    = 1;
-const JUMP_DURATION = 500;
+// --- MODERN MOD REJECTION PACKET BYPASS ---
+bot.once('login', () => {
+    console.log(`[Network Layer] Handshake established. Intercepting registry channels...`);
+    const client = bot._client;
+    if (client) {
+        client.on('custom_payload', (packet) => {
+            if (packet.channel === 'minecraft:register' || packet.channel === 'fabric:registry/sync' || packet.channel === 'fml:handshake') {
+                try {
+                    client.write('custom_payload', {
+                        channel: packet.channel,
+                        data: Buffer.alloc(0)
+                    });
+                    console.log(`[Bypass Layer] Answered registry channel check: ${packet.channel}`);
+                } catch (err) {
+                    console.error(`[Bypass Error] Failed packet response payload generation`);
+                }
+            }
+        });
+    }
+});
 
 bot.on('spawn', () => {
-  setTimeout(() => {
-    bot.setControlState('sneak', true);
-    console.log(`✅ ${config.botUsername} is Ready!`);
-  }, 3000);
-
-  setTimeout(movementCycle, STEP_INTERVAL);
+    console.log(`[Lifecycle] ${config.botUsername} successfully localized inside chunks.`);
+    bot.physicsEnabled = true; // Safe to wake up gravity engine maps
+    bot.clearControlStates();
+    
+    // Trigger simple movement routines
+    setInterval(() => {
+        if (!bot || !bot.entity) return;
+        bot.setControlState('jump', true);
+        setTimeout(() => bot.setControlState('jump', false), 400);
+    }, 20000);
 });
 
-function movementCycle() {
-  if (!bot.entity) return;
-
-  switch (movementPhase) {
-    case 0:
-      bot.setControlState('forward', true);
-      bot.setControlState('back', false);
-      bot.setControlState('jump', false);
-      break;
-    case 1:
-      bot.setControlState('forward', false);
-      bot.setControlState('back', true);
-      bot.setControlState('jump', false);
-      break;
-    case 2:
-      bot.setControlState('forward', false);
-      bot.setControlState('back', false);
-      bot.setControlState('jump', true);
-      setTimeout(() => {
-        bot.setControlState('jump', false);
-      }, JUMP_DURATION);
-      break;
-    case 3:
-      bot.setControlState('forward', false);
-      bot.setControlState('back', false);
-      bot.setControlState('jump', false);
-      break;
-  }
-
-  movementPhase = (movementPhase + 1) % 4;
-
-  setTimeout(movementCycle, STEP_INTERVAL);
-}
+bot.on('end', (reason) => {
+    console.log(`[Engine Connection Dropped] Context: ${reason}`);
+    console.log(`[Engine Cycle] Cooldown active. Restarting process thread in 15 seconds...`);
+    setTimeout(() => {
+        process.exit(1); // Forces your host panel runner to cleanly reboot the script
+    }, 15000);
+});
 
 bot.on('error', (err) => {
-  console.error('⚠️ Error:', err);
-});
-bot.on('end', () => {
-  console.log('⛔️ Bot Disconnected!');
+    console.error(`[Runtime Exception] ${err.message}`);
 });
