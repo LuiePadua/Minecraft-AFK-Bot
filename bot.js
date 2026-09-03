@@ -1,7 +1,7 @@
 const mineflayer = require('mineflayer');
 const config = require('./config.json');
 
-console.log(`[Engine] Initializing clean connection frame to ${config.serverHost}:${config.serverPort}`);
+console.log(`[Engine] Initializing connection to ${config.serverHost}:${config.serverPort}`);
 
 const bot = mineflayer.createBot({
     host: config.serverHost,
@@ -11,7 +11,21 @@ const bot = mineflayer.createBot({
     auth: "offline",
     brand: "vanilla",
     respawn: true,
-    physicsEnabled: false // Lock states until spawned inside dimensions safely
+    physicsEnabled: false 
+});
+
+// --- ABSOLUTE RESOURCE PACK CRASH SUPPRESSION ---
+// Stops the bot from parsing abnormally large image or block geometry packets
+bot.on('resourcePack', (url, hash) => {
+    console.log(`[Resource Pack] Intercepted server pack demands. Denying payload stream safely...`);
+    try {
+        bot.denyResourcePack(); // Safely rejects the download so the network array doesn't overload
+    } catch (err) {
+        // Fallback for older packet streams if API state locks down
+        if (bot._client) {
+            bot._client.write('resource_pack_receive', { result: 2 }); // Status 2 = Declined
+        }
+    }
 });
 
 // --- MODERN MOD REJECTION PACKET BYPASS ---
@@ -27,9 +41,7 @@ bot.once('login', () => {
                         data: Buffer.alloc(0)
                     });
                     console.log(`[Bypass Layer] Answered registry channel check: ${packet.channel}`);
-                } catch (err) {
-                    console.error(`[Bypass Error] Failed packet response payload generation`);
-                }
+                } catch (err) {}
             }
         });
     }
@@ -37,10 +49,9 @@ bot.once('login', () => {
 
 bot.on('spawn', () => {
     console.log(`[Lifecycle] ${config.botUsername} successfully localized inside chunks.`);
-    bot.physicsEnabled = true; // Safe to wake up gravity engine maps
+    bot.physicsEnabled = true; 
     bot.clearControlStates();
     
-    // Trigger simple movement routines
     setInterval(() => {
         if (!bot || !bot.entity) return;
         bot.setControlState('jump', true);
@@ -52,10 +63,11 @@ bot.on('end', (reason) => {
     console.log(`[Engine Connection Dropped] Context: ${reason}`);
     console.log(`[Engine Cycle] Cooldown active. Restarting process thread in 15 seconds...`);
     setTimeout(() => {
-        process.exit(1); // Forces your host panel runner to cleanly reboot the script
+        process.exit(1); 
     }, 15000);
 });
 
 bot.on('error', (err) => {
-    console.error(`[Runtime Exception] ${err.message}`);
+    // Gracefully catch and log buffer limits instead of completely crashing the script engine
+    console.error(`[Suppressed Runtime Exception] ${err.message}`);
 });
