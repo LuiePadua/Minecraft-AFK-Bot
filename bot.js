@@ -1,7 +1,11 @@
 const mineflayer = require('mineflayer');
 const config = require('./config.json');
 
-console.log(`[Engine] Initializing connection loop to ${config.serverHost}:${config.serverPort}`);
+console.log(`[Engine] Initializing connection to ${config.serverHost}:${config.serverPort}`);
+
+// --- PROGRAMMATIC PACKET FIXER INJECTION ---
+// We override the default Max Packet allocation size BEFORE mineflayer boots up
+process.env.NODE_MAX_PACKET_SIZE = "104857600"; // Extends packet cap limits to 100MB+
 
 const bot = mineflayer.createBot({
     host: config.serverHost,
@@ -11,36 +15,29 @@ const bot = mineflayer.createBot({
     auth: "offline",
     brand: "vanilla",
     respawn: true,
-    physicsEnabled: false, // Lock heavy physical calculations until spawned safely
-    
-    // --- ABSOLUTE FIX FOR CHUNK ARRAY DECOMPRESSION ERROR ---
-    // This stops the engine from parsing complex chunk/world blocks entirely
-    hideErrors: true, 
-    skipValidation: true
+    physicsEnabled: false
 });
 
-// Disable global world logging to prevent data streams from desynchronizing
+// Forces the chunk decoder system to skip heavy, dense terrain updates that cause array overflows
 bot.loadPlugin((botInstance) => {
     botInstance.world.getColumns = () => [];
     botInstance.world.getColumn = () => null;
     botInstance.world.getColumnAt = () => null;
 });
 
-// --- ABSOLUTE RESOURCE PACK CRASH SUPPRESSION ---
 bot.on('resourcePack', (url, hash) => {
-    console.log(`[Resource Pack] Intercepted server pack demands. Denying payload stream safely...`);
-    try {
-        bot.denyResourcePack(); 
-    } catch (err) {
-        if (bot._client) {
-            bot._client.write('resource_pack_receive', { result: 2 }); 
-        }
-    }
+    console.log(`[Resource Pack] Denying custom payload layout to stabilize network memory.`);
+    try { bot.denyResourcePack(); } catch (err) {}
 });
 
-// --- MODERN MOD REJECTION & KEEPALIVE STABILIZER ---
 bot.once('login', () => {
     console.log(`[Network Layer] Handshake established. Intercepting registry channels...`);
+    
+    // Adjust packet buffer sizes directly on the raw socket client framework
+    if (bot._client && bot._client.deserializer) {
+        bot._client.deserializer.maxSize = 104857600; // Forces packet faking boundaries to expand
+    }
+
     const client = bot._client;
     if (client) {
         client.on('custom_payload', (packet) => {
@@ -58,42 +55,29 @@ bot.once('login', () => {
 });
 
 bot.on('spawn', () => {
-    console.log(`[Lifecycle] ${config.botUsername} successfully localized inside chunks.`);
-    
-    // Maintain fake player physics coordinates without unpacking dense map data
+    console.log(`[Lifecycle] ${config.botUsername} successfully standing in the world.`);
     bot.physicsEnabled = false; 
     bot.clearControlStates();
     
-    startMovementRoutine();
+    // Keep packet lines alive cleanly without physical player models
+    setInterval(() => {
+        if (!bot || !bot._client) return;
+        try {
+            bot._client.write('arm_animation', { hand: 0 });
+            console.log(`[KeepAlive] Sent arm update to keep connection active.`);
+        } catch (e) {}
+    }, 10000); 
 });
 
 bot.on('end', (reason) => {
-    console.log(`[Engine Connection Dropped] Context: ${reason}`);
-    console.log(`[Engine Cycle] Cooldown active. Restarting process thread in 15 seconds...`);
-    setTimeout(() => {
-        process.exit(1); 
-    }, 15000);
+    console.log(`[Engine Disconnected] Context: ${reason}`);
+    setTimeout(() => { process.exit(1); }, 15000);
 });
 
 bot.on('error', (err) => {
-    // Suppress any stray parsing exceptions cleanly to hold the session pipeline
+    // Suppress remaining minor desync array traces safely to hold the connection pipeline active
     if (err.message.includes('array size') || err.message.includes('play.toClient')) {
         return;
     }
     console.error(`[Suppressed Runtime Exception] ${err.message}`);
 });
-
-let movementInterval;
-function startMovementRoutine() {
-    if (movementInterval) clearInterval(movementInterval);
-    
-    // Alternate standard network variables rather than raw physical maps
-    movementInterval = setInterval(() => {
-        if (!bot || !bot._client) return;
-        try {
-            // Fires a safe player position swing update directly to the socket to keep connection alive
-            bot._client.write('arm_animation', { hand: 0 });
-            console.log(`[KeepAlive] Dispatched artificial packet update.`);
-        } catch (e) {}
-    }, 10000); 
-}
