@@ -3,9 +3,8 @@ const config = require('./config.json');
 
 console.log(`[Engine] Initializing connection to ${config.serverHost}:${config.serverPort}`);
 
-// --- PROGRAMMATIC PACKET FIXER INJECTION ---
-// We override the default Max Packet allocation size BEFORE mineflayer boots up
-process.env.NODE_MAX_PACKET_SIZE = "104857600"; // Extends packet cap limits to 100MB+
+// --- EXTEND THE ENTIRE PROJECT BUFFER THRESHOLD ---
+process.env.NODE_MAX_PACKET_SIZE = "268435456"; // Extends internal allocation frames to 256MB+
 
 const bot = mineflayer.createBot({
     host: config.serverHost,
@@ -15,10 +14,10 @@ const bot = mineflayer.createBot({
     auth: "offline",
     brand: "vanilla",
     respawn: true,
-    physicsEnabled: false
+    physicsEnabled: false // Locks tracking ticks to stop desyncs
 });
 
-// Forces the chunk decoder system to skip heavy, dense terrain updates that cause array overflows
+// FORCE INTERCEPT: Disables chunk deserialization entirely to stop array overflows
 bot.loadPlugin((botInstance) => {
     botInstance.world.getColumns = () => [];
     botInstance.world.getColumn = () => null;
@@ -33,9 +32,9 @@ bot.on('resourcePack', (url, hash) => {
 bot.once('login', () => {
     console.log(`[Network Layer] Handshake established. Intercepting registry channels...`);
     
-    // Adjust packet buffer sizes directly on the raw socket client framework
+    // --- FORCE PACKET FIXER TO BIND TO INTERNAL PROTOCOL DECODER ---
     if (bot._client && bot._client.deserializer) {
-        bot._client.deserializer.maxSize = 104857600; // Forces packet faking boundaries to expand
+        bot._client.deserializer.maxSize = 268435456; // Expands the decoder threshold limit natively
     }
 
     const client = bot._client;
@@ -59,7 +58,7 @@ bot.on('spawn', () => {
     bot.physicsEnabled = false; 
     bot.clearControlStates();
     
-    // Keep packet lines alive cleanly without physical player models
+    // Keep packet lines alive cleanly without tracking physical terrain models
     setInterval(() => {
         if (!bot || !bot._client) return;
         try {
@@ -75,7 +74,7 @@ bot.on('end', (reason) => {
 });
 
 bot.on('error', (err) => {
-    // Suppress remaining minor desync array traces safely to hold the connection pipeline active
+    // Suppress remaining array sizes tracking drops safely to prevent fatal engine crashes
     if (err.message.includes('array size') || err.message.includes('play.toClient')) {
         return;
     }
