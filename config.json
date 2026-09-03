@@ -1,6 +1,6 @@
 {
-  "serverHost": "example.aternos.me",
-  "serverPort": 12345,
-  "botUsername": "MyBot",
-  "botChunk": 1
+  "serverHost": "orca-seal-52-64d2b0.orc.host",
+  "serverPort": 25565,
+  "botUsername": "BOTTIEE",
+  "botChunk": 3
 }
